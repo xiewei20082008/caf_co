@@ -2,6 +2,8 @@
 caf/0.18.5@
 
 [generators]
-cmake
+CMakeDeps
+CMakeToolchain
 
-[options]
+[layout]
+cmake_layout
