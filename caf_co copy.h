@@ -65,6 +65,7 @@ struct caf_co_promise
 	// template<typename... Args>
 	caf_co_promise()
 	{
+		cout << "create caf_co_promise" << endl;
 		wait_destroy = std::make_shared<bool>(true);
 	}
 	void link_lifespan_to_requester(actor_requester auto* self) {
@@ -75,6 +76,12 @@ struct caf_co_promise
 				c.destroy();
 			}
 		});
+	}
+
+	void resume() {
+		cout <<"manually resume" << endl;
+		auto c = stdcoro::coroutine_handle<caf_co_promise<T>>::from_promise(*this);
+		c.resume();
 	}
 
 	auto get_return_object() noexcept { return stdcoro::coroutine_handle<caf_co_promise<T>>::from_promise(*this); }
@@ -90,17 +97,10 @@ struct caf_co_promise
 	void return_value(expected<T> const& v)
 	{
 		cout << "deliver once" << endl;
-		m_value = std::make_unique<expected<T>>(v);
+		m_value = make_unique<expected<T>>(v);
 		notify_callbacks();
 		cout << "notify_callbacks OK" << endl;
 	}
-
-	void resume() {
-		cout <<"manually resume" << endl;
-		auto c = stdcoro::coroutine_handle<caf_co_promise<T>>::from_promise(*this);
-		c.resume();
-	}
-
 	// For CAF, it seems to be safe not to use lock here.
 	void on_completed(std::function<void(expected<T>)> &&func) {
 		if (m_value) {
@@ -132,17 +132,17 @@ struct [[nodiscard]] caf_co
 	caf_co(stdcoro::coroutine_handle<promise_type> coroutine)
 		: m_coroutine(std::move(coroutine))
 	{
+		cout <<"create caf_co" << endl;
 	}
 	~caf_co() {
+		cout <<"delete caf_co" << endl;
 	}
-
 
 	bool await_ready() const noexcept {
         return false; // always suspend for simplification, could be more complex
     }
 
     void await_suspend(stdcoro::coroutine_handle<> handle) noexcept {
-		resume();
         m_coroutine.promise().on_completed([handle](expected<T> result) mutable {
             handle.resume();  // Resume the awaiting coroutine once the result is ready
         });
@@ -230,6 +230,7 @@ struct caf_co_env : public std::enable_shared_from_this<caf_co_env<ReturnType, R
 		r_t r = f(this->shared_from_this());
 		r.link_lifespan_to_requester(self);
 		r.set_rp(m_rp);
+		// init a environment. no request yet, manually resume to start.
 		r.resume();
 		return m_rp;
 	}
@@ -359,7 +360,7 @@ auto co_request(Requester* self, Args&&... args) {
 }
 
 template<typename... Ts, typename Requester, typename... Args>
-auto co_request_tuple(Requester* self, Args&&... args) {
+auto co_request(Requester* self, Args&&... args) {
 	// return CoRequestAwaiterVoid<Requester, Args...>(self, std::forward<Args>(args)...);
 	return typename CoRequestAwaiterTuple<Ts...>::template Awaiter<Requester, Args...>(self, std::forward<Args>(args)...);
 }

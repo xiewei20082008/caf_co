@@ -1,5 +1,6 @@
 [requires]
 caf/0.18.5@
+boost/1.84.0@
 
 [generators]
 CMakeDeps
