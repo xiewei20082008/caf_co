@@ -132,3 +132,50 @@ template<typename R, typename Requester, class Dest, typename... Args>
 auto co_req(Requester* self, const Dest& dest, std::chrono::duration<long long> dur, Args&&... args) {
 	return request_awaiter<R, Requester, Dest, Args...>(self, dest, dur, std::forward<Args>(args)...);
 }
+
+
+template<class ...Rs>
+struct request_tuple_awaiter {
+	template<class Requester, class Dest, typename ... Ts>
+	struct Awaiter {
+		using R = std::tuple<Rs...>;
+		std::unique_ptr<caf::expected<R>> r;
+
+		Awaiter(Requester *self, const Dest& dest, std::chrono::duration<long long> dur, Ts... xs):
+		self(self), dest(dest), dur(dur), args(std::forward<Ts>(xs)...)
+		{ }
+
+		bool await_ready() const { return false; }
+		stdcoro::suspend_always initial_suspend() { return {}; }
+		void await_suspend(stdcoro::coroutine_handle<> handle) {
+			std::cout <<"before awaiter request" <<std::endl;
+			std::apply([this, handle](auto&&... args) {
+				self->request(dest, dur, std::forward<Ts>(args)...).then(
+					[this, handle](Rs... rs){
+						// std::cout << "request result: " << x << std::endl;
+						auto res = std::make_tuple(rs...);
+						r = std::make_unique<caf::expected<R>>(res);
+						handle.resume();
+					},
+					[this, handle](caf::error& e){
+						r = std::make_unique<caf::expected<R>>(e);
+						handle.resume();
+					}
+				);
+			}, args);
+		}
+		caf::expected<R> await_resume() {
+			// std::cout << "await_resume" << *r <<std::endl;
+			return *r;
+		}
+		Requester * self;
+		const Dest& dest;
+		std::tuple<Ts...> args;
+		std::chrono::duration<long long> dur;
+	};
+};
+
+template<typename ...Ts, typename Requester, class Dest, typename... Args>
+auto co_req_tuple(Requester* self, const Dest& dest, std::chrono::duration<long long> dur, Args&&... args) {
+	return typename request_tuple_awaiter<Ts...>::template Awaiter<Requester, Dest, Args...>(self, dest, dur, std::forward<Args>(args)...);
+}
