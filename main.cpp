@@ -6,6 +6,7 @@
 #include <future>
 #include <memory>
 #include <thread>
+#include "caf_co2.h"
 
 using inc_actor_t = typed_actor<
 	result<int>(int)
@@ -47,108 +48,6 @@ behavior test_impl(event_based_actor *self, inc_actor_t inc_actor) {
 	};
 }
 
-template<class R>
-struct co_result {
-    struct promise_type {
-		unique_ptr<expected<R>> m_result;
-
-        std::suspend_always initial_suspend() { return {}; }
-        std::suspend_never final_suspend() noexcept { return {}; }
-        // void return_void() {}
-        void unhandled_exception() {
-            std::exit(1);
-        }
-        co_result get_return_object() {
-            return co_result{std::coroutine_handle<promise_type>::from_promise(*this)};
-        }
-
-		void on_completed(std::function<void(expected<R>)> &&func) {
-			if (m_result) {
-				func(*m_result);
-			} else {
-				completion_callbacks.push_back(func);
-			}
-		}
-
-		void notify_callbacks() {
-			auto value = *m_result;
-			for (auto &callback : completion_callbacks) {
-				callback(value);
-			}
-			completion_callbacks.clear();
-		}
-		void return_value(caf::expected<R> v) {
-			cout <<"co_result return value: " <<  *v << endl;
-			m_result = make_unique<expected<R>>(v);
-			notify_callbacks();
-			this->rp.deliver(v);
-        }
-		void set_rp(typed_response_promise<R> rp) {
-			this->rp = rp;
-		}
-		typed_response_promise<R> rp;
-		std::list<std::function<void(expected<R>)>> completion_callbacks;
-    };
-
-	bool await_ready() const { return false; }
-	std::suspend_always initial_suspend() { return {}; }
-	void await_suspend(std::coroutine_handle<> handle) {
-		cout << "co_result await_suspend" << endl;
-        coro.promise().on_completed([handle](expected<R> result) mutable {
-            handle.resume();  // Resume the awaiting coroutine once the result is ready
-        });
-		coro.resume();
-	}
-	expected<R> await_resume() {
-		cout << "co_result await_resume" << endl;
-		return *coro.promise().m_result;
-	}
-
-    std::coroutine_handle<promise_type> coro;
-
-    co_result(std::coroutine_handle<promise_type> h) : coro(h) {
-	}
-    ~co_result() {
-        // if (coro) coro.destroy();
-    }
-	void run(typed_response_promise<R> rp) {
-		coro.promise().set_rp(rp);
-		coro.resume();
-	}
-};
-
-template<class Requester, class Dest, typename ... Ts>
-struct request_awaiter {
-	int r;
-
-	request_awaiter(Requester *self, const Dest& dest, Ts... xs):
-	self(self), dest(dest), args(std::forward<Ts>(xs)...)
-	{ }
-
-	bool await_ready() const { return false; }
-	std::suspend_always initial_suspend() { return {}; }
-    void await_suspend(std::coroutine_handle<> handle) {
-		cout <<"before awaiter request" <<endl;
-		std::apply([this, handle](auto&&... args) {
-            self->request(dest, std::chrono::seconds(2), std::forward<Ts>(args)...).then(
-				[this, handle](int x){
-					cout << "request result: " << x << endl;
-					r = x;
-					handle.resume();
-				},
-				[this](caf::error& e){
-				}
-			);
-        }, args);
-    }
-    int await_resume() {
-		cout << "await_resume" << r <<endl;
-		return r;
-	}
-	Requester * self;
-	const Dest& dest;
-	std::tuple<Ts...> args;
-};
 
 
 
