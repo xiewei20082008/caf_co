@@ -9,13 +9,17 @@
 #include "caf_co2.h"
 
 using inc_actor_t = typed_actor<
-	result<int>(int)
+	result<int>(int),
+	result<int, int>(int)
 >;
 
 inc_actor_t::behavior_type inc_impl(inc_actor_t::pointer self, actor add_actor) {
 	return {
 		[=](int x) -> result<int> {
 			return x+1;
+		},
+		[=](int x) -> result<int, int> {
+			return {x+1, x+1};
 		}
 	};
 }
@@ -49,11 +53,9 @@ behavior test_impl(event_based_actor *self, inc_actor_t inc_actor) {
 }
 
 
-
-
 co_result<int> inc_1(event_based_actor *self, inc_actor_t inc_actor, int x) {
-	auto ra = request_awaiter(self, inc_actor, x);
-	int t = co_await ra;
+	auto ra = co_req<int>(self, inc_actor, 1s, x);
+	auto t = co_await ra;
 	co_return t;
 }
 
@@ -61,6 +63,12 @@ co_result<int> inc_2(event_based_actor *self, inc_actor_t inc_actor) {
 	auto t1 = co_await inc_1(self, inc_actor, 1);
 	auto t2 = co_await inc_1(self, inc_actor , *t1);
 	co_return t2;
+}
+
+co_result<int> inc_tuple(event_based_actor *self, inc_actor_t inc_actor, int x) {
+	auto ra = co_await co_req_tuple<int,int>(self, inc_actor, 1s, x);
+	auto [a,b] = *ra;
+	co_return a;
 }
 
 behavior test_impl1(event_based_actor *self, inc_actor_t inc_actor) {
@@ -91,6 +99,8 @@ void caf_main(actor_system& system) {
 	);
 	getchar();
 	anon_send_exit(inc_actor, caf::exit_reason::user_shutdown);
+	anon_send_exit(add_actor, caf::exit_reason::user_shutdown);
+	anon_send_exit(test_actor, caf::exit_reason::user_shutdown);
 	getchar();
 }
 
